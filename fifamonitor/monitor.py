@@ -219,16 +219,43 @@ def _scrape_html_page(session: requests.Session) -> List[TicketListing]:
     return results
 
 
+# ─── Backend selection ────────────────────────────────────────────────────────
+
+def _pick_scraper(backend: str):
+    """
+    Return a callable(cookies) -> List[TicketListing].
+
+    Priority (when backend='auto'):
+      1. tls-client  — no browser needed, beats TLS fingerprint checks
+      2. requests    — plain HTTP, works when site has no bot detection
+    """
+    if backend in ("tls", "auto"):
+        try:
+            from tls_scraper import scrape_with_tls_client
+            logger.info("Using tls-client backend (Chrome TLS fingerprint impersonation)")
+            return scrape_with_tls_client
+        except ImportError:
+            if backend == "tls":
+                logger.error("tls-client not installed. Run: pip install tls-client")
+                raise
+            logger.info("tls-client not available, falling back to requests backend")
+
+    # Plain requests fallback
+    session = _make_session()
+    def _requests_scraper(cookies=None):
+        listings = _try_json_api(session)
+        return listings or _scrape_html_page(session)
+    logger.info("Using requests backend")
+    return _requests_scraper
+
+
 # ─── Core monitor loop ────────────────────────────────────────────────────────
 
-def check_once(session: requests.Session, seen_urls: set) -> List[TicketListing]:
+def check_once(scraper, seen_urls: set) -> List[TicketListing]:
     """Perform one check cycle; return only listings not seen before."""
     logger.info("Checking FIFA tickets for NY/NJ…")
 
-    # Try the JSON API first; fall back to HTML scraping
-    listings = _try_json_api(session)
-    if not listings:
-        listings = _scrape_html_page(session)
+    listings = scraper(cookies=getattr(cfg, "BROWSER_COOKIES", None))
 
     if not listings:
         logger.info("No NY/NJ listings found this cycle.")
@@ -246,19 +273,24 @@ def check_once(session: requests.Session, seen_urls: set) -> List[TicketListing]
     return new_listings
 
 
-def run(interval: int = cfg.CHECK_INTERVAL_SECONDS, run_once: bool = False) -> None:
-    session = _make_session()
+def run(
+    interval: int = cfg.CHECK_INTERVAL_SECONDS,
+    run_once: bool = False,
+    backend: str = "auto",
+) -> None:
+    scraper = _pick_scraper(backend)
     seen_urls: set = set()
 
     logger.info(
-        "FIFA 2026 NY/NJ Ticket Monitor started (interval=%ds, venue keywords=%s)",
+        "FIFA 2026 NY/NJ Ticket Monitor started (backend=%s, interval=%ds, venue keywords=%s)",
+        backend,
         interval,
         cfg.TARGET_VENUE_KEYWORDS,
     )
 
     while True:
         try:
-            new_listings = check_once(session, seen_urls)
+            new_listings = check_once(scraper, seen_urls)
             notify(new_listings, cfg)
         except KeyboardInterrupt:
             logger.info("Monitor stopped by user.")
@@ -306,6 +338,12 @@ if __name__ == "__main__":
         help="Run one check and exit (useful for cron jobs)",
     )
     parser.add_argument(
+        "--backend",
+        choices=["auto", "tls", "requests"],
+        default="auto",
+        help="HTTP backend: auto (tls-client then requests), tls, or requests (default: auto)",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable DEBUG logging",
@@ -313,4 +351,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     _setup_logging(args.debug)
-    run(interval=args.interval, run_once=args.once)
+    run(interval=args.interval, run_once=args.once, backend=args.backend)

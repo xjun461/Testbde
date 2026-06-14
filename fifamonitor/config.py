@@ -49,6 +49,17 @@ EMAIL_TO = []              # List of recipient addresses
 # Print a desktop/terminal bell on match
 TERMINAL_BELL = True
 
+# ─── Cookie injection (optional but most effective against 403s) ──────────────
+# Export cookies from your browser (e.g. via "EditThisCookie" extension or
+# DevTools → Application → Cookies → copy as JSON) and paste them here.
+# Each entry needs at least: name, value, domain.
+# Example:
+#   BROWSER_COOKIES = [
+#       {"name": "fifa_session", "value": "abc123", "domain": ".tickets.fifa.com"},
+#       {"name": "consent",      "value": "1",      "domain": ".tickets.fifa.com"},
+#   ]
+BROWSER_COOKIES: "list[dict] | None" = None
+
 # ─── Logging ──────────────────────────────────────────────────────────────────
 LOG_LEVEL = "INFO"         # DEBUG | INFO | WARNING | ERROR
 LOG_FILE = ""              # Leave empty to log to stdout only
